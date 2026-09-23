@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-50: #f2f8ee;
+  --color-brand-100: #e0eed6;
+  --color-brand-200: #c2ddae;
+  --color-brand-300: #9cc781;
+  --color-brand-400: #78b05c;
+  --color-brand-500: #5a9640;
+  --color-brand-600: #457a31;
+  --color-brand-700: #366127;
+  --color-brand-800: #2f6b3a;
+  --color-brand-900: #1f4423;
+
+  --color-earth-100: #f4f0e8;
+  --color-earth-200: #e6dcc8;
+
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background-color: #f4f7f2;
+  color: #1f2a1f;
+  overscroll-behavior-y: contain;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Tap target minimo per uso sotto sole / con guanti */
+.btn {
+  min-height: 48px;
+  touch-action: manipulation;
+}
+
+input,
+select,
+textarea,
+button {
+  font-family: inherit;
+}
+
+/* Scrollbar più discreta su desktop, ignorata su mobile */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #c2ddae;
+  border-radius: 4px;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.9); opacity: 0.9; }
+  70% { transform: scale(1.6); opacity: 0; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+.pulse-ring {
+  animation: pulse-ring 1.6s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+}
