@@ -145,7 +145,7 @@ export default function NuovaSessionePage() {
   if (!giardino) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <TopBar title="Nuova sessione" backTo={`/giardini/${giardinoId}`} />
+        <TopBar title="Prosegui" backTo={`/giardini/${giardinoId}`} />
         <p className="text-center text-gray-500 mt-10">Giardino non trovato.</p>
       </div>
     )
@@ -154,7 +154,7 @@ export default function NuovaSessionePage() {
   if (puntiOrdinati.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <TopBar title="Nuova sessione" backTo={`/giardini/${giardinoId}`} />
+        <TopBar title="Prosegui" backTo={`/giardini/${giardinoId}`} />
         <p className="text-center text-gray-500 mt-10 px-6">
           Non ci sono ancora punti censiti su questo giardino. Torna alla scheda giardino e posiziona almeno un
           punto sulla mappa prima di avviare una sessione di lettura.
@@ -167,7 +167,7 @@ export default function NuovaSessionePage() {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-10">
-      <TopBar title="Nuova sessione di lettura" backTo={`/giardini/${giardinoId}`} />
+      <TopBar title="Prosegui con le letture" backTo={`/giardini/${giardinoId}`} />
 
       <div className="max-w-3xl mx-auto px-4 pt-4 space-y-5">
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3">

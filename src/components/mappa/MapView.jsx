@@ -5,6 +5,10 @@ const ZOOM_MAX = 4
 const ZOOM_STEP = 0.5
 const SOGLIA_DRAG_PX = 6
 
+// "height" indica l'altezza MASSIMA del riquadro mappa (usata anche per il pan/zoom):
+// il riquadro si restringe alla foto quando questa è più bassa del limite, invece di
+// lasciare uno spazio vuoto sotto l'immagine.
+
 /**
  * Visualizzatore mappa con pan/zoom (scroll nativo + pulsanti +/-), pin
  * posizionati in percentuale (0-100) sull'immagine, overlay heatmap,
@@ -14,7 +18,7 @@ const SOGLIA_DRAG_PX = 6
  */
 export default function MapView({
   imageUrl,
-  height = 'h-[58vh]',
+  height = 'max-h-[58vh]',
   pins = [], // [{id, x, y, color, label, draggable}]
   onPinClick,
   onPinDragEnd,
@@ -96,7 +100,14 @@ export default function MapView({
   }
 
   return (
-    <div className="relative">
+    <div>
+      {hint ? (
+        <div className="bg-brand-50 border border-brand-200 rounded-xl px-3 py-2 mb-2 text-xs font-medium text-brand-800">
+          {hint}
+        </div>
+      ) : null}
+
+      <div className="relative">
       <div
         className={`${height} w-full rounded-2xl bg-gray-100 overflow-auto relative touch-pan-x touch-pan-y`}
         style={{ overscrollBehavior: 'contain' }}
@@ -260,12 +271,7 @@ export default function MapView({
           ) : null}
         </div>
       ) : null}
-
-      {hint ? (
-        <div className="absolute top-3 left-3 right-16 bg-white/95 shadow-sm rounded-lg px-3 py-1.5 text-xs font-medium text-gray-700 z-10">
-          {hint}
-        </div>
-      ) : null}
+      </div>
     </div>
   )
 }

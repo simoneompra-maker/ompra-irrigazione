@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import TopBar from '../components/TopBar'
 import MapView from '../components/mappa/MapView'
 import Spinner from '../components/common/Spinner'
 import Modal from '../components/common/Modal'
 import Button from '../components/common/Button'
 import { Input, Textarea, Select } from '../components/common/FormField'
-import { giardiniApi, stazioniApi, puntiApi } from '../lib/api'
+import { giardiniApi, stazioniApi, puntiApi, sessioniApi, lettureApi } from '../lib/api'
 // (stazioniApi già importata sopra, riusata nei sotto-componenti di questo file)
 import { caricaFile } from '../lib/storage'
 import { useToast } from '../contexts/ToastContext'
 import { useLocalStorage } from '../hooks/useLocalStorage'
 import { coloreStazione, COLORE_NESSUNA_STAZIONE } from '../utils/colors'
 import { distribuisciPuntiInPoligono } from '../utils/polygon'
+import { oggiISO } from '../utils/format'
 
 function prossimoCodice(punti) {
   const numeri = punti.map((p) => parseInt(p.codice, 10)).filter((n) => !Number.isNaN(n))
@@ -21,6 +22,7 @@ function prossimoCodice(punti) {
 
 export default function GiardinoPage() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const { showToast } = useToast()
 
   const [giardino, setGiardino] = useState(null)
@@ -28,7 +30,7 @@ export default function GiardinoPage() {
   const [punti, setPunti] = useState([])
   const [caricamento, setCaricamento] = useState(true)
 
-  const [attivoTool, setAttivoTool] = useState('punti') // punti | poligono | irrigatori
+  const [attivoTool, setAttivoTool] = useState('punti') // punti | poligono | irrigatori | lettura
   const [poligono, setPoligono] = useState([])
   const [modaleDistribuisci, setModaleDistribuisci] = useState(false)
   const [numPuntiDistribuisci, setNumPuntiDistribuisci] = useState(6)
@@ -40,6 +42,16 @@ export default function GiardinoPage() {
   const [mostraLayerIrrigatori, setMostraLayerIrrigatori] = useState(false)
   const [irrigatori, setIrrigatori] = useLocalStorage(`irrigazione:irrigatori:${id}`, [])
   const [irrigatoreSelezionato, setIrrigatoreSelezionato] = useState(null)
+
+  // --- Modalità "Lettura": tocchi un punto sulla mappa e scrivi subito il mm, senza cambiare schermata ---
+  const [sessioneAttiva, setSessioneAttiva] = useState(null) // sessione già creata su cui si stanno registrando le letture
+  const [stazioneLettura, setStazioneLettura] = useState('')
+  const [durataLettura, setDurataLettura] = useState('')
+  const [dataLettura, setDataLettura] = useState(oggiISO())
+  const [avvioSessioneInCorso, setAvvioSessioneInCorso] = useState(false)
+  const [letturheAttive, setLetturheAttive] = useState({}) // punto_id -> valore mm (della sessioneAttiva)
+  const [puntoLetturaAttivo, setPuntoLetturaAttivo] = useState(null) // punto per cui è aperto il popup mm
+  const [salvataggioLettura, setSalvataggioLettura] = useState(false)
 
   useEffect(() => {
     let attivo = true
@@ -67,15 +79,18 @@ export default function GiardinoPage() {
     () =>
       punti
         .filter((p) => p.pos_x != null && p.pos_y != null && p.attivo !== false)
-        .map((p) => ({
-          id: p.id,
-          x: p.pos_x,
-          y: p.pos_y,
-          label: p.codice,
-          color: coloreStazione(p.stazione_id, stazioni),
-          draggable: attivoTool === 'punti',
-        })),
-    [punti, stazioni, attivoTool]
+        .map((p) => {
+          const giaLetto = attivoTool === 'lettura' && sessioneAttiva && letturheAttive[p.id] !== undefined
+          return {
+            id: p.id,
+            x: p.pos_x,
+            y: p.pos_y,
+            label: p.codice,
+            color: giaLetto ? '#34D399' : coloreStazione(p.stazione_id, stazioni),
+            draggable: attivoTool === 'punti',
+          }
+        }),
+    [punti, stazioni, attivoTool, sessioneAttiva, letturheAttive]
   )
 
   const cerchiIrrigatori = useMemo(
@@ -92,9 +107,29 @@ export default function GiardinoPage() {
       return
     }
     if (attivoTool === 'irrigatori') {
-      const nuovo = { id: `irr-${Date.now()}`, x, y, radiusPercent: 4, nota: '' }
+      const nuovo = { id: `irr-${Date.now()}`, x, y, radiusPercent: 1, nota: '' }
       setIrrigatori((prev) => [...prev, nuovo])
       setIrrigatoreSelezionato(nuovo)
+      return
+    }
+    if (attivoTool === 'lettura') {
+      if (!sessioneAttiva) return // deve prima impostare stazione/durata e premere "Avvia lettura"
+      // area vuota: crea al volo un nuovo punto e apre subito il popup mm
+      try {
+        const codice = prossimoCodice(punti)
+        const nuovoPunto = await puntiApi.crea({
+          giardino_id: id,
+          codice,
+          pos_x: x,
+          pos_y: y,
+          stazione_id: sessioneAttiva.stazione_id || null,
+          attivo: true,
+        })
+        setPunti((prev) => [...prev, nuovoPunto])
+        setPuntoLetturaAttivo(nuovoPunto)
+      } catch (err) {
+        showToast(err.message || 'Errore nel creare il punto', 'error')
+      }
       return
     }
     // modalità 'punti': aggiunge un nuovo punto sul giardino
@@ -111,7 +146,64 @@ export default function GiardinoPage() {
   function handlePinClick(pin) {
     if (attivoTool === 'irrigatori') return
     const punto = punti.find((p) => p.id === pin.id)
-    if (punto) setPuntoSelezionato(punto)
+    if (!punto) return
+    if (attivoTool === 'lettura') {
+      if (!sessioneAttiva) return
+      setPuntoLetturaAttivo(punto)
+      return
+    }
+    setPuntoSelezionato(punto)
+  }
+
+  async function avviaLettura() {
+    setAvvioSessioneInCorso(true)
+    try {
+      const sessione = await sessioniApi.crea({
+        giardino_id: id,
+        stazione_id: stazioneLettura || null,
+        data: dataLettura,
+        durata_minuti: durataLettura ? Number(durataLettura) : null,
+        note: null,
+      })
+      setSessioneAttiva(sessione)
+      setLetturheAttive({})
+      showToast('Lettura avviata: tocca i punti sulla mappa per inserire i mm', 'success')
+    } catch (err) {
+      showToast(err.message || "Errore nell'avviare la lettura", 'error')
+    } finally {
+      setAvvioSessioneInCorso(false)
+    }
+  }
+
+  async function salvaValoreLettura(valoreTesto) {
+    if (!sessioneAttiva || !puntoLetturaAttivo) return
+    const valoreNum = Number(String(valoreTesto).replace(',', '.'))
+    if (Number.isNaN(valoreNum)) {
+      showToast('Valore mm non valido', 'error')
+      return
+    }
+    setSalvataggioLettura(true)
+    try {
+      await lettureApi.salvaMassivo([
+        { sessione_id: sessioneAttiva.id, punto_id: puntoLetturaAttivo.id, valore_mm: valoreNum },
+      ])
+      setLetturheAttive((prev) => ({ ...prev, [puntoLetturaAttivo.id]: valoreNum }))
+      setPuntoLetturaAttivo(null)
+    } catch (err) {
+      showToast(err.message || 'Errore nel salvare la lettura', 'error')
+    } finally {
+      setSalvataggioLettura(false)
+    }
+  }
+
+  function terminaLettura() {
+    const sessioneId = sessioneAttiva?.id
+    setSessioneAttiva(null)
+    setLetturheAttive({})
+    setStazioneLettura('')
+    setDurataLettura('')
+    setAttivoTool('punti')
+    if (sessioneId) navigate(`/sessioni/${sessioneId}`)
   }
 
   async function handlePinDragEnd(idPunto, x, y) {
@@ -198,6 +290,8 @@ export default function GiardinoPage() {
     )
   }
 
+  const puntiLettiCount = Object.keys(letturheAttive).length
+
   const suggerimento =
     attivoTool === 'poligono'
       ? poligono.length < 3
@@ -205,7 +299,11 @@ export default function GiardinoPage() {
         : `Poligono con ${poligono.length} vertici — premi "Fatto" per continuare`
       : attivoTool === 'irrigatori'
         ? 'Tocca la mappa per aggiungere un irrigatore'
-        : 'Tocca la mappa per aggiungere un punto · trascina un pin per spostarlo'
+        : attivoTool === 'lettura'
+          ? sessioneAttiva
+            ? `Tocca un punto per scrivere il mm · tocca un'area vuota per aggiungerne uno nuovo (${puntiLettiCount} letti)`
+            : 'Imposta stazione e durata qui sotto, poi premi "Avvia lettura"'
+          : 'Tocca la mappa per aggiungere un punto · trascina un pin per spostarlo'
 
   return (
     <div className="min-h-screen bg-gray-50 pb-10">
@@ -233,6 +331,7 @@ export default function GiardinoPage() {
 
         {/* Barra strumenti mappa */}
         <div className="flex gap-2 overflow-x-auto pb-1">
+          <ToolButton attivo={attivoTool === 'lettura'} onClick={() => setAttivoTool('lettura')} icon="📝" label="Lettura" />
           <ToolButton attivo={attivoTool === 'punti'} onClick={() => setAttivoTool('punti')} icon="📍" label="Punti" />
           <ToolButton
             attivo={attivoTool === 'poligono'}
@@ -268,6 +367,46 @@ export default function GiardinoPage() {
           </button>
         </div>
 
+        {attivoTool === 'lettura' && !sessioneAttiva ? (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Select label="Stazione (opzionale)" value={stazioneLettura} onChange={(e) => setStazioneLettura(e.target.value)}>
+                <option value="">Non specificata</option>
+                {stazioni.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.numero ? `#${s.numero} ` : ''}
+                    {s.nome}
+                  </option>
+                ))}
+              </Select>
+              <Input
+                label="Durata test (minuti)"
+                type="number"
+                min={1}
+                placeholder="es. 15"
+                value={durataLettura}
+                onChange={(e) => setDurataLettura(e.target.value)}
+              />
+            </div>
+            <Input label="Data test" type="date" value={dataLettura} onChange={(e) => setDataLettura(e.target.value)} />
+            <Button full onClick={avviaLettura} disabled={avvioSessioneInCorso}>
+              {avvioSessioneInCorso ? 'Avvio…' : '▶ Avvia lettura'}
+            </Button>
+          </div>
+        ) : null}
+
+        {attivoTool === 'lettura' && sessioneAttiva ? (
+          <div className="bg-brand-50 border border-brand-200 rounded-2xl p-3 flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-brand-800">
+              {stazioni.find((s) => s.id === sessioneAttiva.stazione_id)?.nome || 'Nessuna stazione'} ·{' '}
+              {sessioneAttiva.durata_minuti ? `${sessioneAttiva.durata_minuti} min` : 'durata n/d'} · {puntiLettiCount} letti
+            </p>
+            <Button size="sm" onClick={terminaLettura}>
+              Fine
+            </Button>
+          </div>
+        ) : null}
+
         <MapView
           imageUrl={giardino.mappa_immagine_url}
           pins={pinsMappa}
@@ -297,7 +436,9 @@ export default function GiardinoPage() {
         {/* Legenda stazioni */}
         {stazioni.length > 0 ? (
           <div className="flex flex-wrap gap-2">
-            <LegendaItem colore={COLORE_NESSUNA_STAZIONE} label="Nessuna stazione" />
+            {punti.some((p) => !p.stazione_id) ? (
+              <LegendaItem colore={COLORE_NESSUNA_STAZIONE} label="Nessuna stazione" />
+            ) : null}
             {stazioni.map((s) => (
               <LegendaItem key={s.id} colore={coloreStazione(s.id, stazioni)} label={`${s.numero ? `#${s.numero} ` : ''}${s.nome || ''}`.trim() || 'Stazione'} />
             ))}
@@ -309,7 +450,7 @@ export default function GiardinoPage() {
             to={`/giardini/${id}/sessioni/nuova`}
             className="btn flex items-center justify-center gap-2 bg-brand-700 text-white font-bold py-3.5 rounded-2xl shadow-md hover:bg-brand-800"
           >
-            + Nuova sessione
+            ▶ Prosegui
           </Link>
           <Link
             to={`/giardini/${id}/storico`}
@@ -330,6 +471,17 @@ export default function GiardinoPage() {
             stazioni={stazioni}
             onSalva={salvaPunto}
             onElimina={eliminaPunto}
+          />
+        ) : null}
+      </Modal>
+
+      {/* Modal inserimento rapido mm (modalità Lettura) */}
+      <Modal open={!!puntoLetturaAttivo} onClose={() => setPuntoLetturaAttivo(null)} title={`Punto ${puntoLetturaAttivo?.codice || ''}`}>
+        {puntoLetturaAttivo ? (
+          <LetturaMmForm
+            valoreIniziale={letturheAttive[puntoLetturaAttivo.id]}
+            salvataggio={salvataggioLettura}
+            onSalva={salvaValoreLettura}
           />
         ) : null}
       </Modal>
@@ -405,6 +557,44 @@ export default function GiardinoPage() {
           />
         ) : null}
       </Modal>
+    </div>
+  )
+}
+
+function LetturaMmForm({ valoreIniziale, salvataggio, onSalva }) {
+  const [valore, setValore] = useState(valoreIniziale != null ? String(valoreIniziale).replace('.', ',') : '')
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
+
+  function cambiaValore(v) {
+    if (v !== '' && !/^\d*[.,]?\d*$/.test(v)) return
+    setValore(v)
+  }
+
+  function conferma() {
+    if (valore === '') return
+    onSalva(valore)
+  }
+
+  return (
+    <div className="space-y-4">
+      <input
+        ref={inputRef}
+        inputMode="decimal"
+        placeholder="mm"
+        value={valore}
+        onChange={(e) => cambiaValore(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') conferma()
+        }}
+        className="w-full text-center text-4xl font-black text-gray-900 rounded-xl border border-gray-300 py-4 focus:outline-none focus:ring-2 focus:ring-brand-500"
+      />
+      <Button full size="lg" onClick={conferma} disabled={salvataggio || valore === ''}>
+        {salvataggio ? 'Salvataggio…' : 'Salva e continua'}
+      </Button>
     </div>
   )
 }
@@ -583,7 +773,7 @@ function ModificaGiardinoForm({ giardino, onSalvato, showToast }) {
 
 function IrrigatoreForm({ irrigatore, onSalva, onElimina }) {
   const [nota, setNota] = useState(irrigatore.nota || '')
-  const [raggio, setRaggio] = useState(irrigatore.radiusPercent || 4)
+  const [raggio, setRaggio] = useState(irrigatore.radiusPercent || 1)
 
   return (
     <div className="space-y-4">
