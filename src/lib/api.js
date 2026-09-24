@@ -222,6 +222,16 @@ export const sessioniApi = {
     const res = await supabase.from('irrigazione_sessioni').insert(payload).select().single()
     return throwIfError(res)
   },
+
+  async aggiorna(id, payload) {
+    const res = await supabase.from('irrigazione_sessioni').update(payload).eq('id', id).select().single()
+    return throwIfError(res)
+  },
+
+  async elimina(id) {
+    const res = await supabase.from('irrigazione_sessioni').delete().eq('id', id)
+    return throwIfError(res)
+  },
 }
 
 // ---------------------------------------------------------------------------

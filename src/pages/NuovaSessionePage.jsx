@@ -10,6 +10,14 @@ import { caricaFile } from '../lib/storage'
 import { useToast } from '../contexts/ToastContext'
 import { oggiISO } from '../utils/format'
 
+// Bozza salvata in localStorage mentre si compila, così se si torna indietro (es. per
+// controllare come sono disposti i punti sulla mappa) e poi si rientra in questa schermata
+// i valori già scritti non vengono persi. Le foto (File) non sono serializzabili e non
+// vengono salvate nella bozza: solo i mm, la nota e le impostazioni del test.
+function chiaveBozza(giardinoId) {
+  return `irrigazione:bozza-sessione:${giardinoId}`
+}
+
 export default function NuovaSessionePage() {
   const { id: giardinoId } = useParams()
   const navigate = useNavigate()
@@ -20,18 +28,45 @@ export default function NuovaSessionePage() {
   const [punti, setPunti] = useState([])
   const [caricamento, setCaricamento] = useState(true)
 
-  const [stazioneId, setStazioneId] = useState('')
-  const [durataMinuti, setDurataMinuti] = useState('')
-  const [data, setData] = useState(oggiISO())
-  const [nota, setNota] = useState('')
-  const [modalita, setModalita] = useState('campo') // 'campo' | 'foto'
+  const [bozzaIniziale] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem(chiaveBozza(giardinoId))
+      return raw ? JSON.parse(raw) : null
+    } catch {
+      return null
+    }
+  })
 
-  const [valori, setValori] = useState({}) // punto_id -> stringa valore mm
+  const [stazioneId, setStazioneId] = useState(bozzaIniziale?.stazioneId || '')
+  const [durataMinuti, setDurataMinuti] = useState(bozzaIniziale?.durataMinuti || '')
+  const [data, setData] = useState(bozzaIniziale?.data || oggiISO())
+  const [nota, setNota] = useState(bozzaIniziale?.nota || '')
+  const [modalita, setModalita] = useState(bozzaIniziale?.modalita || 'campo') // 'campo' | 'foto'
+
+  const [valori, setValori] = useState(bozzaIniziale?.valori || {}) // punto_id -> stringa valore mm
   const [foto, setFoto] = useState({}) // punto_id -> {file, anteprima}
   const [fotoGenerali, setFotoGenerali] = useState([]) // foto caricate in modalità 'da foto', libere
 
   const [indiceAttivo, setIndiceAttivo] = useState(0) // per il tastierino, punto attualmente in focus
   const [salvataggio, setSalvataggio] = useState(false)
+
+  useEffect(() => {
+    if (bozzaIniziale && Object.keys(bozzaIniziale.valori || {}).length > 0) {
+      showToast('Bozza precedente ripristinata: i valori già inseriti sono ancora qui', 'success')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        chiaveBozza(giardinoId),
+        JSON.stringify({ stazioneId, durataMinuti, data, nota, modalita, valori })
+      )
+    } catch {
+      // storage pieno o non disponibile: la bozza resta solo in memoria per questa visita
+    }
+  }, [giardinoId, stazioneId, durataMinuti, data, nota, modalita, valori])
 
   useEffect(() => {
     let attivo = true
@@ -125,6 +160,11 @@ export default function NuovaSessionePage() {
         }
       }
 
+      try {
+        window.localStorage.removeItem(chiaveBozza(giardinoId))
+      } catch {
+        // non bloccante
+      }
       showToast('Sessione salvata', 'success')
       navigate(`/sessioni/${sessione.id}`)
     } catch (err) {

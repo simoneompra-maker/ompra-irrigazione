@@ -46,6 +46,17 @@ export default function StoricoGiardinoPage() {
     }
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  async function eliminaSessione(sessione) {
+    if (!window.confirm(`Eliminare la sessione del ${formattaData(sessione.data)}? Verranno cancellate anche tutte le letture registrate in quella sessione. L'operazione non è reversibile.`)) return
+    try {
+      await sessioniApi.elimina(sessione.id)
+      setRighe((prev) => prev.filter((r) => r.sessione.id !== sessione.id))
+      showToast('Sessione eliminata', 'success')
+    } catch (err) {
+      showToast(err.message || "Errore nell'eliminazione della sessione", 'error')
+    }
+  }
+
   const puntiGrafico = useMemo(() => {
     if (!righe) return []
     return [...righe]
@@ -91,21 +102,30 @@ export default function StoricoGiardinoPage() {
                 .slice()
                 .sort((a, b) => new Date(b.sessione.data) - new Date(a.sessione.data))
                 .map(({ sessione, statistiche }) => (
-                  <Link
+                  <div
                     key={sessione.id}
-                    to={`/sessioni/${sessione.id}`}
-                    className="btn w-full flex items-center justify-between gap-3 bg-white rounded-2xl px-4 py-3.5 shadow-sm border border-gray-100 hover:border-brand-300 text-left"
+                    className="w-full flex items-center gap-2 bg-white rounded-2xl px-4 py-3.5 shadow-sm border border-gray-100 hover:border-brand-300"
                   >
-                    <div>
-                      <p className="font-semibold text-gray-900">{formattaData(sessione.data)}</p>
-                      <p className="text-sm text-gray-500">
-                        {sessione.irrigazione_stazioni
-                          ? `${sessione.irrigazione_stazioni.numero ? `#${sessione.irrigazione_stazioni.numero} ` : ''}${sessione.irrigazione_stazioni.nome}`
-                          : 'Stazione non specificata'}
-                      </p>
-                    </div>
-                    {statistiche ? <QualityBadge duLq={statistiche.duLq} size="sm" /> : <span className="text-xs text-gray-300">n/d</span>}
-                  </Link>
+                    <Link to={`/sessioni/${sessione.id}`} className="btn flex-1 flex items-center justify-between gap-3 text-left">
+                      <div>
+                        <p className="font-semibold text-gray-900">{formattaData(sessione.data)}</p>
+                        <p className="text-sm text-gray-500">
+                          {sessione.irrigazione_stazioni
+                            ? `${sessione.irrigazione_stazioni.numero ? `#${sessione.irrigazione_stazioni.numero} ` : ''}${sessione.irrigazione_stazioni.nome}`
+                            : 'Stazione non specificata'}
+                        </p>
+                      </div>
+                      {statistiche ? <QualityBadge duLq={statistiche.duLq} size="sm" /> : <span className="text-xs text-gray-300">n/d</span>}
+                    </Link>
+                    <button
+                      type="button"
+                      className="btn shrink-0 w-9 h-9 rounded-full bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center"
+                      onClick={() => eliminaSessione(sessione)}
+                      aria-label="Elimina sessione"
+                    >
+                      🗑
+                    </button>
+                  </div>
                 ))}
             </div>
           </>

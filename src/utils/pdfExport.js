@@ -184,14 +184,13 @@ export function esportaPdfRiepilogoVisita({ cliente, giardino, data, sezioni }) 
       doc.addPage()
       y = 20
     }
+    const titoloSezione =
+      sez.titolo ||
+      `Stazione: ${sez.sessione?.irrigazione_stazioni ? `${sez.sessione.irrigazione_stazioni.numero || ''} ${sez.sessione.irrigazione_stazioni.nome || ''}`.trim() : 'Non specificata'}`
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(13)
     doc.setTextColor(...VERDE)
-    doc.text(
-      `Stazione: ${sez.sessione?.irrigazione_stazioni ? `${sez.sessione.irrigazione_stazioni.numero || ''} ${sez.sessione.irrigazione_stazioni.nome || ''}`.trim() : 'Non specificata'}`,
-      14,
-      y
-    )
+    doc.text(titoloSezione, 14, y)
     y += 8
     y = sezioneStatistiche(doc, y, sez.statistiche)
     y = sezioneLetture(doc, y, sez.righe)
