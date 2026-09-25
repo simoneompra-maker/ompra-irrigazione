@@ -5,6 +5,13 @@ import { qualitaDuLq } from './uniformity'
 
 const VERDE = [47, 107, 58]
 const GRIGIO = [90, 90, 90]
+// Colori per livello di qualità (DU quarto inferiore), coerenti con qualitaDuLq()
+const COLORI_QUALITA = {
+  buono: [22, 130, 68], // eccellente
+  medio: [180, 95, 6], // buono ma da tenere d'occhio
+  scarso: [200, 30, 30], // da migliorare
+  neutro: [110, 110, 110],
+}
 
 function intestazione(doc, { cliente, giardino, sessione }) {
   doc.setFillColor(...VERDE)
@@ -59,6 +66,12 @@ function sezioneStatistiche(doc, y, statistiche) {
       q.label,
     ]],
     margin: { left: 14, right: 14 },
+    didParseCell(data) {
+      if (data.section === 'body' && data.column.index === 5) {
+        data.cell.styles.textColor = COLORI_QUALITA[q.livello] || COLORI_QUALITA.neutro
+        data.cell.styles.fontStyle = 'bold'
+      }
+    },
   })
   return doc.lastAutoTable.finalY + 8
 }
@@ -179,18 +192,60 @@ export function esportaPdfRiepilogoVisita({ cliente, giardino, data, sezioni }) 
   doc.text(formattaData(data), 45, y)
   y += 10
 
-  sezioni.forEach((sez, idx) => {
-    if (idx > 0) {
+  const sezioniConTitolo = sezioni.map((sez) => ({
+    ...sez,
+    titolo:
+      sez.titolo ||
+      `Stazione: ${sez.sessione?.irrigazione_stazioni ? `${sez.sessione.irrigazione_stazioni.numero || ''} ${sez.sessione.irrigazione_stazioni.nome || ''}`.trim() : 'Non specificata'}`,
+  }))
+
+  // Riepilogo a colpo d'occhio: quando ci sono più zone, mostra subito quali
+  // necessitano di attenzione, ordinate dalla peggiore alla migliore.
+  if (sezioniConTitolo.length > 1) {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(12)
+    doc.setTextColor(...VERDE)
+    doc.text('Riepilogo a colpo d\'occhio', 14, y)
+    y += 6
+
+    const righeRiepilogo = sezioniConTitolo
+      .map((sez) => ({ sez, q: qualitaDuLq(sez.statistiche?.duLq) }))
+      .sort((a, b) => (a.sez.statistiche?.duLq ?? 999) - (b.sez.statistiche?.duLq ?? 999))
+
+    autoTable(doc, {
+      startY: y,
+      theme: 'grid',
+      styles: { fontSize: 9, cellPadding: 2.5 },
+      headStyles: { fillColor: VERDE, textColor: 255 },
+      head: [['Zona', 'DU (quarto inf.)', 'CU Christiansen', 'Valutazione']],
+      body: righeRiepilogo.map(({ sez, q }) => [
+        sez.titolo.replace(/^(Zona|Stazione):\s*/, ''),
+        sez.statistiche ? `${sez.statistiche.duLq.toFixed(0)}%` : '—',
+        sez.statistiche ? `${sez.statistiche.cu.toFixed(0)}%` : '—',
+        q.label,
+      ]),
+      margin: { left: 14, right: 14 },
+      didParseCell(data) {
+        if (data.section === 'body' && data.column.index === 3) {
+          const livello = righeRiepilogo[data.row.index].q.livello
+          data.cell.styles.textColor = COLORI_QUALITA[livello] || COLORI_QUALITA.neutro
+          data.cell.styles.fontStyle = 'bold'
+        }
+      },
+    })
+    y = doc.lastAutoTable.finalY + 10
+  }
+
+  sezioniConTitolo.forEach((sez, idx) => {
+    if (idx > 0 || sezioniConTitolo.length > 1) {
       doc.addPage()
       y = 20
     }
-    const titoloSezione =
-      sez.titolo ||
-      `Stazione: ${sez.sessione?.irrigazione_stazioni ? `${sez.sessione.irrigazione_stazioni.numero || ''} ${sez.sessione.irrigazione_stazioni.nome || ''}`.trim() : 'Non specificata'}`
+    const q = qualitaDuLq(sez.statistiche?.duLq)
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(13)
-    doc.setTextColor(...VERDE)
-    doc.text(titoloSezione, 14, y)
+    doc.setTextColor(...(COLORI_QUALITA[q.livello] || VERDE))
+    doc.text(sez.titolo, 14, y)
     y += 8
     y = sezioneStatistiche(doc, y, sez.statistiche)
     y = sezioneLetture(doc, y, sez.righe)
