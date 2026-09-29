@@ -13,6 +13,7 @@ import { calcolaProgrammazione, DEFAULT_PERCENTUALE_DEFICIT, DEFAULT_CICLI_SETTI
 import { esportaPdfSessione, esportaPdfRiepilogoVisita } from '../utils/pdfExport'
 import { formattaData, numero } from '../utils/format'
 import { coloreStazione, COLORE_NESSUNA_STAZIONE } from '../utils/colors'
+import { trovaAnomalie, trovaSovrapposizioni, trovaIrrigatorePiuVicino } from '../utils/diagnostica'
 import { useToast } from '../contexts/ToastContext'
 
 export default function RiepilogoSessionePage() {
@@ -34,6 +35,19 @@ export default function RiepilogoSessionePage() {
   const [stazioneModifica, setStazioneModifica] = useState('')
   const [durataModifica, setDurataModifica] = useState('')
   const [salvataggioModifica, setSalvataggioModifica] = useState(false)
+
+  // Layer "irrigatori" (annotazione visiva, salvata in locale sul dispositivo che l'ha
+  // disegnata): lettura di sola visualizzazione, non va mai riscritta da qui per non
+  // rischiare di sovrascrivere dati creati altrove per questo giardino.
+  const irrigatori = useMemo(() => {
+    if (!sessione?.giardino_id) return []
+    try {
+      const salvato = window.localStorage.getItem(`irrigazione:irrigatori:${sessione.giardino_id}`)
+      return salvato ? JSON.parse(salvato) : []
+    } catch {
+      return []
+    }
+  }, [sessione])
 
   useEffect(() => {
     let attivo = true
@@ -97,7 +111,12 @@ export default function RiepilogoSessionePage() {
           statistiche: calcolaStatistiche(righeGruppo.map((l) => l.valore_mm)),
           righe: [...righeGruppo]
             .sort((a, b) => (parseInt(a.irrigazione_punti?.codice, 10) || 0) - (parseInt(b.irrigazione_punti?.codice, 10) || 0))
-            .map((l) => ({ codice: l.irrigazione_punti?.codice || '—', valore_mm: l.valore_mm })),
+            .map((l) => ({
+              codice: l.irrigazione_punti?.codice || '—',
+              valore_mm: l.valore_mm,
+              pos_x: l.irrigazione_punti?.pos_x,
+              pos_y: l.irrigazione_punti?.pos_y,
+            })),
         }
       })
       .sort((a, b) => {
@@ -132,6 +151,20 @@ export default function RiepilogoSessionePage() {
   // usate anche dall'export PDF singolo per compatibilità.
   const statistiche = gruppi.length === 1 ? gruppi[0].statistiche : calcolaStatistiche(letture.map((l) => l.valore_mm))
   const programmazione = gruppi.length === 1 ? gruppi[0].programmazione : null
+
+  // Diagnostica: punti fuori norma dentro la propria zona (possibile irrigatore da
+  // controllare) e possibili sovrapposizioni tra punti vicini di zone confinanti (la
+  // stessa area riceve acqua da entrambe le zone in momenti diversi del ciclo).
+  const anomalie = useMemo(() => trovaAnomalie(gruppi), [gruppi])
+  const anomalieConIrrigatore = useMemo(
+    () => anomalie.map((a) => ({ ...a, vicino: trovaIrrigatorePiuVicino(a, irrigatori) })),
+    [anomalie, irrigatori]
+  )
+  const tuttiIPunti = useMemo(
+    () => gruppi.flatMap((g) => g.righe.map((r) => ({ ...r, stazioneId: g.stazioneId }))),
+    [gruppi]
+  )
+  const sovrapposizioni = useMemo(() => (multiStazione ? trovaSovrapposizioni(tuttiIPunti) : []), [tuttiIPunti, multiStazione])
 
   const heatPoints = useMemo(() => {
     if (!statistiche) return []
@@ -168,6 +201,8 @@ export default function RiepilogoSessionePage() {
           programmazione: g.programmazione,
           righe: g.righe,
         })),
+        anomalie: anomalieConIrrigatore,
+        sovrapposizioni,
       })
       return
     }
@@ -178,6 +213,7 @@ export default function RiepilogoSessionePage() {
       righe: righeOrdinate,
       statistiche,
       programmazione,
+      anomalie: anomalieConIrrigatore,
     })
   }
 
@@ -332,6 +368,10 @@ export default function RiepilogoSessionePage() {
                 centralinaModello={giardino?.centralina_modello}
               />
             ))}
+
+            {anomalieConIrrigatore.length > 0 || sovrapposizioni.length > 0 ? (
+              <SezioneDaVerificare anomalie={anomalieConIrrigatore} sovrapposizioni={sovrapposizioni} />
+            ) : null}
           </div>
         ) : null}
 
@@ -461,6 +501,59 @@ function SchedaGruppo({ titolo, colore, statistiche, programmazione, centralinaM
               </tbody>
             </table>
           </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function SezioneDaVerificare({ anomalie, sovrapposizioni }) {
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-amber-200 p-4 space-y-3">
+      <h2 className="font-bold text-gray-900 flex items-center gap-2">🔍 Punti da verificare sul campo</h2>
+      <p className="text-xs text-gray-500">
+        Segnalazioni automatiche basate sulla posizione e sui valori dei punti — sono indizi su dove guardare, non
+        diagnosi certe: confermale di persona prima di intervenire.
+      </p>
+
+      {anomalie.length > 0 ? (
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-gray-600">Punti fuori norma nella propria zona</h3>
+          <ul className="space-y-2">
+            {anomalie.map((a, idx) => (
+              <li key={`${a.codice}-${idx}`} className="text-sm bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+                <span className="font-semibold text-gray-900">Punto {a.codice}</span>
+                {a.zonaNome ? <span className="text-gray-500"> ({a.zonaNome})</span> : null}: {numero(a.valore_mm, 1)} mm —{' '}
+                <span className={a.tipo === 'basso' ? 'text-red-700 font-semibold' : 'text-blue-700 font-semibold'}>
+                  {a.tipo === 'basso' ? 'molto sotto' : 'molto sopra'} la media di zona
+                </span>{' '}
+                ({numero(a.media, 1)} mm, {Math.round(a.rapporto * 100)}%).{' '}
+                {a.vicino ? (
+                  <span className="text-gray-600">Irrigatore più vicino sulla mappa: controllalo per primo.</span>
+                ) : (
+                  <span className="text-gray-400">Nessun irrigatore annotato nelle vicinanze sulla mappa.</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {sovrapposizioni.length > 0 ? (
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-gray-600">Possibili sovrapposizioni tra zone confinanti</h3>
+          <ul className="space-y-2">
+            {sovrapposizioni.map((s, idx) => (
+              <li key={idx} className="text-sm bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
+                <span className="font-semibold text-gray-900">Punto {s.a.codice}</span> ({numero(s.a.valore_mm, 1)} mm) e{' '}
+                <span className="font-semibold text-gray-900">punto {s.b.codice}</span> ({numero(s.b.valore_mm, 1)} mm) sono
+                vicini sulla mappa ma di zone diverse: insieme stimano circa{' '}
+                <span className="font-semibold text-gray-900">{numero(s.somma, 1)} mm</span> in quell'area nel ciclo
+                completo (media del giardino: {numero(s.mediaGenerale, 1)} mm) — probabile zona sovra-irrigata al
+                confine, da correggere sull'irrigatore più vicino a quel punto, non sui minuti delle due zone.
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
     </div>

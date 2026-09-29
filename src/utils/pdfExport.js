@@ -150,13 +150,88 @@ function sezioneProgrammazione(doc, y, programmazione) {
   return doc.lastAutoTable.finalY + 8
 }
 
+/**
+ * Sezione "Punti da verificare": anomalie dentro la propria zona e possibili
+ * sovrapposizioni tra zone confinanti (vedi utils/diagnostica.js). Puramente
+ * indicativa — non entra nei calcoli di statistiche/programmazione.
+ */
+function sezionePuntiDaVerificare(doc, y, { anomalie = [], sovrapposizioni = [] } = {}) {
+  if (anomalie.length === 0 && sovrapposizioni.length === 0) return y
+  if (y > 250) {
+    doc.addPage()
+    y = 20
+  }
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(12)
+  doc.setTextColor(...VERDE)
+  doc.text('Punti da verificare sul campo', 14, y)
+  y += 5
+  doc.setFont('helvetica', 'italic')
+  doc.setFontSize(8.5)
+  doc.setTextColor(...GRIGIO)
+  doc.text('Segnalazioni automatiche per posizione/valore: indizi su dove guardare, da confermare di persona.', 14, y)
+  y += 6
+
+  if (anomalie.length > 0) {
+    autoTable(doc, {
+      startY: y,
+      theme: 'grid',
+      styles: { fontSize: 8.5, cellPadding: 2 },
+      headStyles: { fillColor: VERDE, textColor: 255 },
+      head: [['Punto', 'Zona', 'Valore (mm)', 'Media zona (mm)', 'Scostamento', 'Irrigatore vicino']],
+      body: anomalie.map((a) => [
+        a.codice,
+        a.zonaNome || '—',
+        a.valore_mm.toFixed(1),
+        a.media.toFixed(1),
+        `${a.tipo === 'basso' ? 'molto sotto' : 'molto sopra'} media (${Math.round(a.rapporto * 100)}%)`,
+        a.vicino ? 'sì, nelle vicinanze' : 'nessuno annotato',
+      ]),
+      margin: { left: 14, right: 14 },
+      didParseCell(data) {
+        if (data.section === 'body' && data.column.index === 4) {
+          const tipo = anomalie[data.row.index].tipo
+          data.cell.styles.textColor = tipo === 'basso' ? COLORI_QUALITA.scarso : [37, 99, 235]
+          data.cell.styles.fontStyle = 'bold'
+        }
+      },
+    })
+    y = doc.lastAutoTable.finalY + 6
+  }
+
+  if (sovrapposizioni.length > 0) {
+    if (y > 250) {
+      doc.addPage()
+      y = 20
+    }
+    autoTable(doc, {
+      startY: y,
+      theme: 'grid',
+      styles: { fontSize: 8.5, cellPadding: 2 },
+      headStyles: { fillColor: VERDE, textColor: 255 },
+      head: [['Punto A', 'Punto B', 'Somma stimata (mm)', 'Media giardino (mm)', 'Nota']],
+      body: sovrapposizioni.map((s) => [
+        `${s.a.codice} (${s.a.valore_mm.toFixed(1)}mm)`,
+        `${s.b.codice} (${s.b.valore_mm.toFixed(1)}mm)`,
+        s.somma.toFixed(1),
+        s.mediaGenerale.toFixed(1),
+        'possibile confine sovra-irrigato',
+      ]),
+      margin: { left: 14, right: 14 },
+    })
+    y = doc.lastAutoTable.finalY + 8
+  }
+  return y
+}
+
 /** Esporta il PDF di una singola sessione/stazione. */
-export function esportaPdfSessione({ cliente, giardino, sessione, righe, statistiche, programmazione }) {
+export function esportaPdfSessione({ cliente, giardino, sessione, righe, statistiche, programmazione, anomalie }) {
   const doc = new jsPDF()
   let y = intestazione(doc, { cliente, giardino, sessione })
   y = sezioneStatistiche(doc, y, statistiche)
   y = sezioneLetture(doc, y, righe)
   y = sezioneProgrammazione(doc, y, programmazione)
+  y = sezionePuntiDaVerificare(doc, y, { anomalie })
 
   piePagina(doc)
   const nomeFile = `test-irrigazione_${(giardino?.luogo || 'giardino').replace(/\s+/g, '-')}_${sessione?.data || ''}.pdf`
@@ -164,7 +239,7 @@ export function esportaPdfSessione({ cliente, giardino, sessione, righe, statist
 }
 
 /** Esporta un PDF riepilogo visita con più stazioni testate nella stessa data. */
-export function esportaPdfRiepilogoVisita({ cliente, giardino, data, sezioni }) {
+export function esportaPdfRiepilogoVisita({ cliente, giardino, data, sezioni, anomalie = [], sovrapposizioni = [] }) {
   const doc = new jsPDF()
   doc.setFillColor(...VERDE)
   doc.rect(0, 0, 210, 22, 'F')
@@ -251,6 +326,12 @@ export function esportaPdfRiepilogoVisita({ cliente, giardino, data, sezioni }) 
     y = sezioneLetture(doc, y, sez.righe)
     y = sezioneProgrammazione(doc, y, sez.programmazione)
   })
+
+  if (anomalie.length > 0 || sovrapposizioni.length > 0) {
+    doc.addPage()
+    y = 20
+    y = sezionePuntiDaVerificare(doc, y, { anomalie, sovrapposizioni })
+  }
 
   piePagina(doc)
   const nomeFile = `riepilogo-visita_${(giardino?.luogo || 'giardino').replace(/\s+/g, '-')}_${data || ''}.pdf`

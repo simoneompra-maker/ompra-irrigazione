@@ -49,7 +49,7 @@ export default function GiardinoPage() {
   const [durataLettura, setDurataLettura] = useState('')
   const [dataLettura, setDataLettura] = useState(oggiISO())
   const [avvioSessioneInCorso, setAvvioSessioneInCorso] = useState(false)
-  const [letturheAttive, setLetturheAttive] = useState({}) // punto_id -> valore mm (della sessioneAttiva)
+  const [lettureAttive, setLettureAttive] = useState({}) // punto_id -> valore mm (della sessioneAttiva)
   const [puntoLetturaAttivo, setPuntoLetturaAttivo] = useState(null) // punto per cui è aperto il popup mm
   const [salvataggioLettura, setSalvataggioLettura] = useState(false)
 
@@ -80,7 +80,7 @@ export default function GiardinoPage() {
       punti
         .filter((p) => p.pos_x != null && p.pos_y != null && p.attivo !== false)
         .map((p) => {
-          const giaLetto = attivoTool === 'lettura' && sessioneAttiva && letturheAttive[p.id] !== undefined
+          const giaLetto = attivoTool === 'lettura' && sessioneAttiva && lettureAttive[p.id] !== undefined
           return {
             id: p.id,
             x: p.pos_x,
@@ -90,7 +90,7 @@ export default function GiardinoPage() {
             draggable: attivoTool === 'punti',
           }
         }),
-    [punti, stazioni, attivoTool, sessioneAttiva, letturheAttive]
+    [punti, stazioni, attivoTool, sessioneAttiva, lettureAttive]
   )
 
   const cerchiIrrigatori = useMemo(
@@ -166,7 +166,7 @@ export default function GiardinoPage() {
         note: null,
       })
       setSessioneAttiva(sessione)
-      setLetturheAttive({})
+      setLettureAttive({})
       showToast('Lettura avviata: tocca i punti sulla mappa per inserire i mm', 'success')
     } catch (err) {
       showToast(err.message || "Errore nell'avviare la lettura", 'error')
@@ -187,7 +187,7 @@ export default function GiardinoPage() {
       await lettureApi.salvaMassivo([
         { sessione_id: sessioneAttiva.id, punto_id: puntoLetturaAttivo.id, valore_mm: valoreNum },
       ])
-      setLetturheAttive((prev) => ({ ...prev, [puntoLetturaAttivo.id]: valoreNum }))
+      setLettureAttive((prev) => ({ ...prev, [puntoLetturaAttivo.id]: valoreNum }))
       setPuntoLetturaAttivo(null)
     } catch (err) {
       showToast(err.message || 'Errore nel salvare la lettura', 'error')
@@ -199,7 +199,7 @@ export default function GiardinoPage() {
   function terminaLettura() {
     const sessioneId = sessioneAttiva?.id
     setSessioneAttiva(null)
-    setLetturheAttive({})
+    setLettureAttive({})
     setStazioneLettura('')
     setDurataLettura('')
     setAttivoTool('punti')
@@ -290,7 +290,7 @@ export default function GiardinoPage() {
     )
   }
 
-  const puntiLettiCount = Object.keys(letturheAttive).length
+  const puntiLettiCount = Object.keys(lettureAttive).length
 
   const suggerimento =
     attivoTool === 'poligono'
@@ -479,7 +479,7 @@ export default function GiardinoPage() {
       <Modal open={!!puntoLetturaAttivo} onClose={() => setPuntoLetturaAttivo(null)} title={`Punto ${puntoLetturaAttivo?.codice || ''}`}>
         {puntoLetturaAttivo ? (
           <LetturaMmForm
-            valoreIniziale={letturheAttive[puntoLetturaAttivo.id]}
+            valoreIniziale={lettureAttive[puntoLetturaAttivo.id]}
             salvataggio={salvataggioLettura}
             onSalva={salvaValoreLettura}
           />
