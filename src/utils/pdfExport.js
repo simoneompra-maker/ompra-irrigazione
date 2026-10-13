@@ -155,7 +155,7 @@ function sezioneProgrammazione(doc, y, programmazione) {
  * sovrapposizioni tra zone confinanti (vedi utils/diagnostica.js). Puramente
  * indicativa — non entra nei calcoli di statistiche/programmazione.
  */
-function sezionePuntiDaVerificare(doc, y, { anomalie = [], sovrapposizioni = [] } = {}) {
+function sezionePuntiDaVerificare(doc, y, { anomalie = [], sovrapposizioni = [], immagineSegnalazioni = null } = {}) {
   if (anomalie.length === 0 && sovrapposizioni.length === 0) return y
   if (y > 250) {
     doc.addPage()
@@ -171,6 +171,37 @@ function sezionePuntiDaVerificare(doc, y, { anomalie = [], sovrapposizioni = [] 
   doc.setTextColor(...GRIGIO)
   doc.text('Segnalazioni automatiche per posizione/valore: indizi su dove guardare, da confermare di persona.', 14, y)
   y += 6
+
+  if (immagineSegnalazioni) {
+    try {
+      const props = doc.getImageProperties(immagineSegnalazioni)
+      const larghezzaMax = 182
+      const altezzaMax = 100
+      let larghezza = larghezzaMax
+      let altezza = (props.height / props.width) * larghezza
+      if (altezza > altezzaMax) {
+        altezza = altezzaMax
+        larghezza = (props.width / props.height) * altezza
+      }
+      if (y + altezza > 280) {
+        doc.addPage()
+        y = 20
+      }
+      doc.addImage(immagineSegnalazioni, 'JPEG', 14, y, larghezza, altezza)
+      y += altezza + 4
+      doc.setFont('helvetica', 'italic')
+      doc.setFontSize(7.5)
+      doc.setTextColor(...GRIGIO)
+      doc.text(
+        'Rosso/blu: anomalia nella propria zona (sotto/sopra media) · Viola: possibile sovrapposizione di confine',
+        14,
+        y
+      )
+      y += 6
+    } catch {
+      // immagine non componibile: si prosegue comunque con le sole tabelle
+    }
+  }
 
   if (anomalie.length > 0) {
     autoTable(doc, {
@@ -225,13 +256,22 @@ function sezionePuntiDaVerificare(doc, y, { anomalie = [], sovrapposizioni = [] 
 }
 
 /** Esporta il PDF di una singola sessione/stazione. */
-export function esportaPdfSessione({ cliente, giardino, sessione, righe, statistiche, programmazione, anomalie }) {
+export function esportaPdfSessione({
+  cliente,
+  giardino,
+  sessione,
+  righe,
+  statistiche,
+  programmazione,
+  anomalie,
+  immagineSegnalazioni,
+}) {
   const doc = new jsPDF()
   let y = intestazione(doc, { cliente, giardino, sessione })
   y = sezioneStatistiche(doc, y, statistiche)
   y = sezioneLetture(doc, y, righe)
   y = sezioneProgrammazione(doc, y, programmazione)
-  y = sezionePuntiDaVerificare(doc, y, { anomalie })
+  y = sezionePuntiDaVerificare(doc, y, { anomalie, immagineSegnalazioni })
 
   piePagina(doc)
   const nomeFile = `test-irrigazione_${(giardino?.luogo || 'giardino').replace(/\s+/g, '-')}_${sessione?.data || ''}.pdf`
@@ -239,7 +279,15 @@ export function esportaPdfSessione({ cliente, giardino, sessione, righe, statist
 }
 
 /** Esporta un PDF riepilogo visita con più stazioni testate nella stessa data. */
-export function esportaPdfRiepilogoVisita({ cliente, giardino, data, sezioni, anomalie = [], sovrapposizioni = [] }) {
+export function esportaPdfRiepilogoVisita({
+  cliente,
+  giardino,
+  data,
+  sezioni,
+  anomalie = [],
+  sovrapposizioni = [],
+  immagineSegnalazioni = null,
+}) {
   const doc = new jsPDF()
   doc.setFillColor(...VERDE)
   doc.rect(0, 0, 210, 22, 'F')
@@ -330,7 +378,7 @@ export function esportaPdfRiepilogoVisita({ cliente, giardino, data, sezioni, an
   if (anomalie.length > 0 || sovrapposizioni.length > 0) {
     doc.addPage()
     y = 20
-    y = sezionePuntiDaVerificare(doc, y, { anomalie, sovrapposizioni })
+    y = sezionePuntiDaVerificare(doc, y, { anomalie, sovrapposizioni, immagineSegnalazioni })
   }
 
   piePagina(doc)

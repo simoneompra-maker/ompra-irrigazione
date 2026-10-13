@@ -14,6 +14,7 @@ import { esportaPdfSessione, esportaPdfRiepilogoVisita } from '../utils/pdfExpor
 import { formattaData, numero } from '../utils/format'
 import { coloreStazione, COLORE_NESSUNA_STAZIONE } from '../utils/colors'
 import { trovaAnomalie, trovaSovrapposizioni, trovaIrrigatorePiuVicino } from '../utils/diagnostica'
+import { generaMappaPuntiSegnalati } from '../utils/mappaConPunti'
 import { useToast } from '../contexts/ToastContext'
 
 export default function RiepilogoSessionePage() {
@@ -190,6 +191,11 @@ export default function RiepilogoSessionePage() {
   const altreStazioniStessoGiorno = sessioniStessoGiorno.filter((s) => s.id !== id)
 
   async function esportaSingola() {
+    const immagineSegnalazioni = await generaMappaPuntiSegnalati({
+      imageUrl: sessione.irrigazione_giardini?.mappa_immagine_url,
+      anomalie: anomalieConIrrigatore,
+      sovrapposizioni,
+    })
     if (multiStazione) {
       esportaPdfRiepilogoVisita({
         cliente,
@@ -203,6 +209,7 @@ export default function RiepilogoSessionePage() {
         })),
         anomalie: anomalieConIrrigatore,
         sovrapposizioni,
+        immagineSegnalazioni,
       })
       return
     }
@@ -214,6 +221,7 @@ export default function RiepilogoSessionePage() {
       statistiche,
       programmazione,
       anomalie: anomalieConIrrigatore,
+      immagineSegnalazioni,
     })
   }
 
